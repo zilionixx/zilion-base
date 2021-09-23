@@ -8,12 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zilionixx/zilion-base/eventcheck/queuedcheck"
 	"github.com/zilionixx/zilion-base/hash"
 	"github.com/zilionixx/zilion-base/inter/dag"
 	"github.com/zilionixx/zilion-base/inter/dag/tdag"
 	"github.com/zilionixx/zilion-base/inter/idx"
-	"github.com/zilionixx/zilion-base/utils/cachescale"
 	"github.com/zilionixx/zilion-base/utils/datasemaphore"
 )
 
@@ -28,28 +26,7 @@ var maxGroupSize = dag.Metric{
 	Size: 50 * 50,
 }
 
-func shuffleTasksIntoChunks(inTasks []queuedcheck.EventTask)  [][]queuedcheck.EventTask {
-	if len(inTasks) == 0 {
-		return nil
-	}
-	var chunks [][]queuedcheck.EventTask
-	var lastChunk []queuedcheck.EventTask
-	var lastChunkSize dag.Metric
-	for _, rnd := range rand.Perm(len(inTasks)) {
-		t := inTasks[rnd]
-		if rand.Intn(10) == 0 || lastChunkSize.Num+1 >= maxGroupSize.Num || lastChunkSize.Size+uint64(t.Event().Size()) >= maxGroupSize.Size {
-			chunks = append(chunks, lastChunk)
-			lastChunk = []queuedcheck.EventTask{}
-		}
-		lastChunk = append(lastChunk, t)
-		lastChunkSize.Num++
-		lastChunkSize.Size += uint64(t.Event().Size())
-	}
-	chunks = append(chunks, lastChunk)
-	return chunks
-}
-
-func shuffleEventsIntoChunks(inEvents dag.Events) []dag.Events {
+func shuffleIntoChunks(inEvents dag.Events) []dag.Events {
 	if len(inEvents) == 0 {
 		return nil
 	}
@@ -92,7 +69,7 @@ func testProcessor(t *testing.T) {
 	semaphore := datasemaphore.New(limit, func(received dag.Metric, processing dag.Metric, releasing dag.Metric) {
 		t.Fatal("events semaphore inconsistency")
 	})
-	config := DefaultConfig(cachescale.Identity)
+	config := DefaultConfig()
 	config.EventsBufferLimit = limit
 
 	checked := 0
@@ -160,13 +137,10 @@ func testProcessor(t *testing.T) {
 				}
 				return nil
 			},
-			CheckParentless: func(tasks []queuedcheck.EventTask, checked func(res []queuedcheck.EventTask)) {
-				chunks := shuffleTasksIntoChunks(tasks)
+			CheckParentless: func(inEvents dag.Events, checked func(ee dag.Events, errs []error)) {
+				chunks := shuffleIntoChunks(inEvents)
 				for _, chunk := range chunks {
-					for _, t := range chunk {
-						t.SetResult(nil)
-					}
-					checked(chunk)
+					checked(chunk, make([]error, len(chunk)))
 				}
 			},
 		},
@@ -178,7 +152,7 @@ func testProcessor(t *testing.T) {
 		},
 	})
 	// shuffle events
-	chunks := shuffleEventsIntoChunks(ordered)
+	chunks := shuffleIntoChunks(ordered)
 
 	// process events
 	processor.Start()
@@ -238,7 +212,7 @@ func testProcessorReleasing(t *testing.T, maxEvents int, try int64) {
 	semaphore := datasemaphore.New(limitPlus1group, func(received dag.Metric, processing dag.Metric, releasing dag.Metric) {
 		t.Fatal("events semaphore inconsistency")
 	})
-	config := DefaultConfig(cachescale.Identity)
+	config := DefaultConfig()
 	config.EventsBufferLimit = limit
 
 	released := uint32(0)
@@ -312,20 +286,19 @@ func testProcessorReleasing(t *testing.T, maxEvents int, try int64) {
 				}
 				return nil
 			},
-			CheckParentless: func(tasks []queuedcheck.EventTask, checked func(res []queuedcheck.EventTask)) {
-				chunks := shuffleTasksIntoChunks(tasks)
+			CheckParentless: func(inEvents dag.Events, checked func(ee dag.Events, errs []error)) {
+				chunks := shuffleIntoChunks(inEvents)
 				for _, chunk := range chunks {
-					for i := range chunk {
+					errs := make([]error, len(chunk))
+					for i := range errs {
 						if rand.Intn(10) == 0 {
-							chunk[i].SetResult(errors.New("testing error"))
-						} else {
-							chunk[i].SetResult(nil)
+							errs[i] = errors.New("testing error")
 						}
 					}
 					if rand.Intn(10) == 0 {
 						time.Sleep(time.Microsecond * 100)
 					}
-					checked(chunk)
+					checked(chunk, errs)
 				}
 			},
 		},
@@ -339,7 +312,7 @@ func testProcessorReleasing(t *testing.T, maxEvents int, try int64) {
 	// duplicate some events
 	ordered = append(ordered, ordered[:rand.Intn(len(ordered))]...)
 	// shuffle events
-	chunks := shuffleEventsIntoChunks(ordered)
+	chunks := shuffleIntoChunks(ordered)
 
 	// process events
 	processor.Start()

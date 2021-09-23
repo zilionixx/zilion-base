@@ -6,7 +6,6 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/opt"
 
 	"github.com/zilionixx/zilion-base/inter/dag"
-	"github.com/zilionixx/zilion-base/utils/cachescale"
 )
 
 type Config struct {
@@ -21,12 +20,12 @@ func (c Config) MaxTasks() int {
 	return c.MaxUnorderedInsertions*2 + 1
 }
 
-func DefaultConfig(scale cachescale.Func) Config {
+func DefaultConfig() Config {
 	return Config{
 		EventsBufferLimit: dag.Metric{
 			// Shouldn't be too big because complexity is O(n) for each insertion in the EventsBuffer
 			Num:  3000,
-			Size: scale.U64(10 * opt.MiB),
+			Size: 10 * opt.MiB,
 		},
 		EventsSemaphoreTimeout: 10 * time.Second,
 	}

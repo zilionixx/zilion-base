@@ -1,7 +1,5 @@
 package abft
 
-import "github.com/zilionixx/zilion-base/utils/cachescale"
-
 type Config struct {
 }
 
@@ -28,11 +26,11 @@ type StoreConfig struct {
 }
 
 // DefaultStoreConfig for livenet.
-func DefaultStoreConfig(scale cachescale.Func) StoreConfig {
+func DefaultStoreConfig() StoreConfig {
 	return StoreConfig{
 		StoreCacheConfig{
-			RootsNum:    scale.U(1000),
-			RootsFrames: scale.I(100),
+			RootsNum:    1000,
+			RootsFrames: 100,
 		},
 	}
 }

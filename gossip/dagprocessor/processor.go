@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/zilionixx/zilion-base/eventcheck"
-	"github.com/zilionixx/zilion-base/eventcheck/queuedcheck"
 	"github.com/zilionixx/zilion-base/gossip/dagordering"
 	"github.com/zilionixx/zilion-base/hash"
 	"github.com/zilionixx/zilion-base/inter/dag"
@@ -43,7 +42,7 @@ type EventCallback struct {
 	Exists          func(hash.Event) bool
 	OnlyInterested  func(ids hash.Events) hash.Events
 	CheckParents    func(e dag.Event, parents dag.Events) error
-	CheckParentless func(tasks []queuedcheck.EventTask, checked func(res []queuedcheck.EventTask))
+	CheckParentless func(inEvents dag.Events, checked func(ee dag.Events, errs []error))
 }
 
 type Callback struct {
@@ -105,20 +104,12 @@ func (f *Processor) Overloaded() bool {
 		f.orderedInserter.TasksCount() > f.cfg.MaxTasks()*3/4
 }
 
-type indexedTask struct {
-	queuedcheck.EventTask
-	pos idx.Event
+type eventErrPair struct {
+	event dag.Event
+	err   error
 }
 
 func (f *Processor) Enqueue(peer string, events dag.Events, ordered bool, notifyAnnounces func(hash.Events), done func()) error {
-	eventTasks := make([]queuedcheck.EventTask, 0, len(events))
-	for i, e := range events {
-		eventTasks = append(eventTasks, &indexedTask{
-			EventTask: queuedcheck.NewTask(e),
-			pos:       idx.Event(i),
-		})
-	}
-
 	if !f.eventsSemaphore.Acquire(events.Metric(), f.cfg.EventsSemaphoreTimeout) {
 		return ErrBusy
 	}
@@ -132,31 +123,38 @@ func (f *Processor) Enqueue(peer string, events dag.Events, ordered bool, notify
 		if done != nil {
 			defer done()
 		}
-		checkedC := make(chan *indexedTask, len(eventTasks))
-		f.callback.Event.CheckParentless(eventTasks, func(checked []queuedcheck.EventTask) {
-			for _, e := range checked {
-				checkedC <- e.(*indexedTask)
+		checkedC := make(chan eventErrPair, len(events))
+		f.callback.Event.CheckParentless(events, func(checked dag.Events, errs []error) {
+			for i, e := range checked {
+				checkedC <- eventErrPair{e, errs[i]}
 			}
 		})
 
-		var orderedResults []*indexedTask
+		var orderedResults []eventErrPair
+		var eventPos map[hash.Event][]int
 		if ordered {
-			orderedResults = make([]*indexedTask, len(eventTasks))
+			orderedResults = make([]eventErrPair, len(events))
+			eventPos = make(map[hash.Event][]int, len(events))
+			for i, e := range events {
+				eventPos[e.ID()] = append(eventPos[e.ID()], i)
+			}
 		}
 		var processed int
 		var toRequest hash.Events
-		for processed < len(eventTasks) {
+		for processed < len(events) {
 			select {
 			case res := <-checkedC:
 				if ordered {
-					orderedResults[res.pos] = res
+					for _, i := range eventPos[res.event.ID()] {
+						orderedResults[i] = res
+					}
 
-					for i := processed; processed < len(orderedResults) && orderedResults[i] != nil; i++ {
-						toRequest = append(toRequest, f.process(peer, orderedResults[i].Event(), orderedResults[i].Result())...)
+					for i := processed; processed < len(orderedResults) && orderedResults[i].event != nil; i++ {
+						toRequest = append(toRequest, f.process(peer, orderedResults[i])...)
 						processed++
 					}
 				} else {
-					toRequest = append(toRequest, f.process(peer, res.Event(), res.Result())...)
+					toRequest = append(toRequest, f.process(peer, res)...)
 					processed++
 				}
 
@@ -172,24 +170,24 @@ func (f *Processor) Enqueue(peer string, events dag.Events, ordered bool, notify
 	})
 }
 
-func (f *Processor) process(peer string, event dag.Event, resErr error) (toRequest hash.Events) {
+func (f *Processor) process(peer string, res eventErrPair) (toRequest hash.Events) {
 	// release event if failed validation
-	if resErr != nil {
-		f.callback.PeerMisbehaviour(peer, resErr)
-		f.callback.Event.Released(event, peer, resErr)
+	if res.err != nil {
+		f.callback.PeerMisbehaviour(peer, res.err)
+		f.callback.Event.Released(res.event, peer, res.err)
 		return hash.Events{}
 	}
 	// release event if it's too far in future
 	highestLamport := f.callback.HighestLamport()
 	maxLamportDiff := 1 + idx.Lamport(f.cfg.EventsBufferLimit.Num)
-	if event.Lamport() > highestLamport+maxLamportDiff {
-		f.callback.Event.Released(event, peer, eventcheck.ErrSpilledEvent)
+	if res.event.Lamport() > highestLamport+maxLamportDiff {
+		f.callback.Event.Released(res.event, peer, eventcheck.ErrSpilledEvent)
 		return hash.Events{}
 	}
 	// push event to the ordering buffer
-	complete := f.buffer.PushEvent(event, peer)
-	if !complete && event.Lamport() <= highestLamport+maxLamportDiff/10 {
-		return event.Parents()
+	complete := f.buffer.PushEvent(res.event, peer)
+	if !complete && res.event.Lamport() <= highestLamport+maxLamportDiff/10 {
+		return res.event.Parents()
 	}
 	return hash.Events{}
 }

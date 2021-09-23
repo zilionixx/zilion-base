@@ -1,10 +1,6 @@
 package itemsfetcher
 
-import (
-	"time"
-
-	"github.com/zilionixx/zilion-base/utils/cachescale"
-)
+import "time"
 
 type Config struct {
 	ForgetTimeout time.Duration // Time before an announced event is forgotten
@@ -21,14 +17,14 @@ type Config struct {
 	MaxQueuedBatches int
 }
 
-func DefaultConfig(scale cachescale.Func) Config {
+func DefaultConfig() Config {
 	return Config{
 		ForgetTimeout:       1 * time.Minute,
 		ArriveTimeout:       1000 * time.Millisecond,
 		GatherSlack:         100 * time.Millisecond,
 		HashLimit:           20000,
-		MaxBatch:            scale.I(512),
-		MaxQueuedBatches:    scale.I(32),
+		MaxBatch:            512,
+		MaxQueuedBatches:    32,
 		MaxParallelRequests: 256,
 	}
 }
