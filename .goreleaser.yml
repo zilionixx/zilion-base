@@ -2,7 +2,7 @@ before:
   hooks:
     - make clean proto vendor
 builds:
-  - main: ./cmd/zilionbft/main.go
+  - main: ./cmd/zilion/main.go
     binary: zilion-base
     ldflags:
       - -linkmode external -extldflags -static -s -w

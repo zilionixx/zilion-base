@@ -7,6 +7,7 @@ import (
 	"github.com/zilionixx/zilion-base/inter/pos"
 	"github.com/zilionixx/zilion-base/kvdb"
 	"github.com/zilionixx/zilion-base/kvdb/table"
+	"github.com/zilionixx/zilion-base/utils/cachescale"
 	"github.com/zilionixx/zilion-base/utils/simplewlru"
 	"github.com/zilionixx/zilion-base/vecengine"
 )
@@ -49,12 +50,12 @@ type Index struct {
 }
 
 // DefaultConfig returns default index config
-func DefaultConfig() IndexConfig {
+func DefaultConfig(scale cachescale.Func) IndexConfig {
 	return IndexConfig{
 		Caches: IndexCacheConfig{
-			ForklessCausePairs:   20000,
-			HighestBeforeSeqSize: 160 * 1024,
-			LowestAfterSeqSize:   160 * 1024,
+			ForklessCausePairs:   scale.I(20000),
+			HighestBeforeSeqSize: scale.U(160 * 1024),
+			LowestAfterSeqSize:   scale.U(160 * 1024),
 		},
 	}
 }

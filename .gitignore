@@ -33,7 +33,7 @@ glide.lock
 *.tgz
 *.zip
 
-# zilionbft project specific
+# lachesis project specific
 scripts/certs
 scripts/nodes
 scripts/peers.json
@@ -41,7 +41,7 @@ scripts/docker/upx
 nodes
 peers.json
 certs
-zilionbft_*
+lachesis_*
 !*.go
 *.log
 *.graph
